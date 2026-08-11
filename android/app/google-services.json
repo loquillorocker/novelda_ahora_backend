@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "944614946890",
+    "project_id": "novelda-ahora",
+    "storage_bucket": "novelda-ahora.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:944614946890:android:9a3a83fbcfd58785c98eb3",
+        "android_client_info": {
+          "package_name": "com.noveldahora.novelda_ahora"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyugj82BA-PW8oKBpYcVw5_8TYlzgzaqQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
