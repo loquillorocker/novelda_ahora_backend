@@ -23,8 +23,8 @@ Future<void> _iniciarImportacionNoticias() async {
 
     await importador.importarTodas();
   } catch (e) {
-    // La importación se ejecuta en segundo plano para no bloquear
-    // el arranque de la aplicación.
+    // La importación se ejecuta en segundo plano
+    // para no bloquear el arranque de la aplicación.
   }
 }
 

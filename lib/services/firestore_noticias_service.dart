@@ -28,8 +28,7 @@ class FirestoreNoticiasService {
   Future<Noticia?> obtenerNoticia(String id) async {
     final documento = await _noticias.doc(id).get();
 
-    if (!documento.exists ||
-        documento.data() == null) {
+    if (!documento.exists || documento.data() == null) {
       return null;
     }
 
@@ -45,6 +44,10 @@ class FirestoreNoticiasService {
         .where(
       'activa',
       isEqualTo: true,
+    )
+        .where(
+      'tipo',
+      isEqualTo: TipoContenido.noticia.name,
     )
         .orderBy(
       'fechaPublicacion',
@@ -69,6 +72,39 @@ class FirestoreNoticiasService {
         .where(
       'activa',
       isEqualTo: true,
+    )
+        .where(
+      'tipo',
+      isEqualTo: TipoContenido.noticia.name,
+    )
+        .orderBy(
+      'fechaPublicacion',
+      descending: true,
+    )
+        .limit(limite)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+          .map(
+            (documento) => Noticia.fromMap(
+          documento.data(),
+        ),
+      )
+          .toList(),
+    );
+  }
+
+  Stream<List<Noticia>> escucharVideos({
+    int limite = 20,
+  }) {
+    return _noticias
+        .where(
+      'activa',
+      isEqualTo: true,
+    )
+        .where(
+      'tipo',
+      isEqualTo: TipoContenido.video.name,
     )
         .orderBy(
       'fechaPublicacion',

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'menu_screen.dart';
 import 'radio_screen.dart';
 import 'noticias_screen.dart';
+import 'videos_screen.dart';
 import '../widgets/home_noticias_section.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -27,6 +28,15 @@ class HomeScreen extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (_) => NoticiasScreen(),
+              ),
+            );
+          }
+
+          if (seccion == 'videos') {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VideosScreen(),
               ),
             );
           }
@@ -117,7 +127,14 @@ class HomeScreen extends StatelessWidget {
           Icons.video_library_outlined,
           'Vídeos',
           'Reportajes y vídeos de actualidad.',
-          onTap: () {},
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VideosScreen(),
+              ),
+            );
+          },
         ),
 
         const SizedBox(height: 10),

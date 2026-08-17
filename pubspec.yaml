@@ -41,6 +41,7 @@ dependencies:
   firebase_auth: ^6.5.7
   url_launcher: ^6.3.2
   just_audio: ^0.10.6
+  youtube_player_iframe: ^6.0.2
 
 dev_dependencies:
   flutter_test:

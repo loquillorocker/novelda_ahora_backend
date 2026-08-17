@@ -20,6 +20,8 @@ class NoticiaRss {
 }
 
 class RssService {
+  static const String _cloudinaryCloudName = 'gg9ef0fm';
+
   Future<List<NoticiaRss>> obtenerItems(String rssUrl) async {
     final uri = Uri.parse(rssUrl);
 
@@ -27,7 +29,8 @@ class RssService {
       uri,
       headers: const {
         'User-Agent': 'NoveldaAhora/1.0',
-        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        'Accept':
+        'application/rss+xml, application/xml, text/xml, */*',
       },
     );
 
@@ -44,7 +47,10 @@ class RssService {
       throw Exception(
         'La fuente no está devolviendo XML/RSS. '
             'Contenido recibido: '
-            '${xml.substring(0, xml.length > 200 ? 200 : xml.length)}',
+            '${xml.substring(
+          0,
+          xml.length > 200 ? 200 : xml.length,
+        )}',
       );
     }
 
@@ -61,20 +67,34 @@ class RssService {
       final url = item.link!.trim();
       final descripcion = item.description;
 
-      final imagen = _extraerImagen(
+      final bloqueItem = _buscarBloqueItem(
         xml,
         url,
-        descripcion,
+        titulo,
+      );
+
+      final contenidoHtml = _extraerContenidoEncoded(
+        bloqueItem,
+      );
+
+      final imagen = _extraerImagen(
+        bloqueItem: bloqueItem,
+        descripcion: descripcion,
+        contenidoHtml: contenidoHtml,
       );
 
       resultado.add(
         NoticiaRss(
           titulo: titulo,
-          resumen: _limpiarTexto(descripcion),
+          resumen: _limpiarTexto(
+            descripcion ?? contenidoHtml,
+          ),
           url: url,
           fechaPublicacion: item.pubDate,
           autor: item.author?.trim(),
-          imagenUrl: imagen,
+          imagenUrl: _convertirImagenCloudinary(
+            imagen,
+          ),
         ),
       );
     }
@@ -82,21 +102,47 @@ class RssService {
     return resultado;
   }
 
-  String? _extraerImagen(
-      String xml,
-      String urlNoticia,
-      String? descripcion,
-      ) {
-    final imagenDescripcion = _extraerImagenDeHtml(descripcion);
+  String? _convertirImagenCloudinary(String? url) {
+    if (url == null || url.trim().isEmpty) {
+      return null;
+    }
+
+    final limpia = url.trim();
+
+    if (limpia.contains('res.cloudinary.com/')) {
+      return limpia;
+    }
+
+    if (!limpia.startsWith('http://') &&
+        !limpia.startsWith('https://')) {
+      return limpia;
+    }
+
+    final encodedUrl = Uri.encodeComponent(limpia);
+
+    return 'https://res.cloudinary.com/'
+        '$_cloudinaryCloudName/image/fetch/'
+        '$encodedUrl';
+  }
+
+  String? _extraerImagen({
+    required String? bloqueItem,
+    required String? descripcion,
+    required String? contenidoHtml,
+  }) {
+    final imagenDescripcion =
+    _extraerImagenDeHtml(descripcion);
 
     if (imagenDescripcion != null) {
       return imagenDescripcion;
     }
 
-    final bloqueItem = _buscarBloqueItem(
-      xml,
-      urlNoticia,
-    );
+    final imagenContenido =
+    _extraerImagenDeHtml(contenidoHtml);
+
+    if (imagenContenido != null) {
+      return imagenContenido;
+    }
 
     if (bloqueItem == null) {
       return null;
@@ -129,12 +175,29 @@ class RssService {
       return imagenEnclosure;
     }
 
-    final imagenHtmlItem = _extraerImagenDeHtml(
-      bloqueItem,
-    );
+    final imagenHtmlItem =
+    _extraerImagenDeHtml(bloqueItem);
 
     if (imagenHtmlItem != null) {
       return imagenHtmlItem;
+    }
+
+    final imagenHref = _extraerAtributoHref(
+      bloqueItem,
+      'media:content',
+    );
+
+    if (imagenHref != null) {
+      return imagenHref;
+    }
+
+    final thumbnailHref = _extraerAtributoHref(
+      bloqueItem,
+      'media:thumbnail',
+    );
+
+    if (thumbnailHref != null) {
+      return thumbnailHref;
     }
 
     return null;
@@ -143,12 +206,19 @@ class RssService {
   String? _buscarBloqueItem(
       String xml,
       String urlNoticia,
+      String titulo,
       ) {
     final items = RegExp(
       r'<item\b[^>]*>.*?</item>',
       caseSensitive: false,
       dotAll: true,
     ).allMatches(xml);
+
+    final urlNormalizada =
+    _decodificarXml(urlNoticia.trim());
+
+    final tituloNormalizado =
+    _decodificarXml(titulo.trim());
 
     for (final match in items) {
       final bloque = match.group(0);
@@ -157,7 +227,18 @@ class RssService {
         continue;
       }
 
-      if (bloque.contains(urlNoticia)) {
+      final bloqueNormalizado =
+      _decodificarXml(bloque);
+
+      if (bloqueNormalizado.contains(
+        urlNormalizada,
+      )) {
+        return bloque;
+      }
+
+      if (bloqueNormalizado.contains(
+        tituloNormalizado,
+      )) {
         return bloque;
       }
     }
@@ -187,11 +268,70 @@ class RssService {
       return null;
     }
 
-    return _normalizarUrl(url!);
+    return _normalizarUrl(
+      _decodificarXml(url!),
+    );
   }
 
-  String? _extraerImagenDeHtml(String? html) {
-    if (html == null || html.trim().isEmpty) {
+  String? _extraerAtributoHref(
+      String xml,
+      String etiqueta,
+      ) {
+    final patron = RegExp(
+      '<$etiqueta\\b[^>]*\\bhref\\s*=\\s*[\'"]([^\'"]+)[\'"]',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    final match = patron.firstMatch(xml);
+
+    if (match == null) {
+      return null;
+    }
+
+    final url = match.group(1);
+
+    if (!_esUrlValida(url)) {
+      return null;
+    }
+
+    return _normalizarUrl(
+      _decodificarXml(url!),
+    );
+  }
+
+  String? _extraerContenidoEncoded(
+      String? bloqueItem,
+      ) {
+    if (bloqueItem == null ||
+        bloqueItem.trim().isEmpty) {
+      return null;
+    }
+
+    final patron = RegExp(
+      r'<content:encoded\b[^>]*>(.*?)</content:encoded>',
+      caseSensitive: false,
+      dotAll: true,
+    );
+
+    final match = patron.firstMatch(
+      bloqueItem,
+    );
+
+    if (match == null) {
+      return null;
+    }
+
+    return _decodificarXml(
+      match.group(1) ?? '',
+    );
+  }
+
+  String? _extraerImagenDeHtml(
+      String? html,
+      ) {
+    if (html == null ||
+        html.trim().isEmpty) {
       return null;
     }
 
@@ -216,6 +356,11 @@ class RssService {
         caseSensitive: false,
         dotAll: true,
       ),
+      RegExp(
+        r'''<img\b[^>]*\bsrcset\s*=\s*["']([^"']+)["']''',
+        caseSensitive: false,
+        dotAll: true,
+      ),
     ];
 
     for (final patron in patrones) {
@@ -225,10 +370,26 @@ class RssService {
         continue;
       }
 
-      final url = match.group(1);
+      var url = match.group(1);
+
+      if (url == null) {
+        continue;
+      }
+
+      url = _decodificarXml(url.trim());
+
+      if (url.contains(',')) {
+        url = url.split(',').first.trim();
+      }
+
+      final partes = url.split(' ');
+
+      if (partes.isNotEmpty) {
+        url = partes.first.trim();
+      }
 
       if (_esUrlValida(url)) {
-        return _normalizarUrl(url!);
+        return _normalizarUrl(url);
       }
     }
 
@@ -257,14 +418,30 @@ class RssService {
         limpia.startsWith('//');
   }
 
+  String _decodificarXml(String texto) {
+    return texto
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>');
+  }
+
   String? _limpiarTexto(String? texto) {
-    if (texto == null || texto.trim().isEmpty) {
+    if (texto == null ||
+        texto.trim().isEmpty) {
       return null;
     }
 
     return texto
-        .replaceAll(RegExp(r'<[^>]*>'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(
+      RegExp(r'<[^>]*>'),
+      ' ',
+    )
+        .replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    )
         .trim();
   }
 }
