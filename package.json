@@ -1,0 +1,14 @@
+{
+  "name": "novelda-ahora-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend automático de avisos meteorológicos de AEMET para Novelda Ahora.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.2.5",
+    "firebase-admin": "^13.4.0"
+  }
+}
