@@ -7,7 +7,7 @@ const FEED_URL =
 const AEMET_API_BASE =
   "https://opendata.aemet.es/opendata/api";
 
-const NOVELDA_CODIGO = "03660";
+const NOVELDA_CODIGO = "03093";
 
 const COLLECTION_AVISOS = "avisos_creados";
 const COLLECTION_TIEMPO = "tiempo";
