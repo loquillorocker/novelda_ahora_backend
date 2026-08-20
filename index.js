@@ -392,6 +392,7 @@ async function actualizarTiempo() {
 
   const data = {
     municipio: "Novelda",
+
     codigoMunicipio: NOVELDA_CODIGO,
 
     fuente: "AEMET",
@@ -470,11 +471,6 @@ main()
   .catch((error) => {
     console.error("");
     console.error("===== ERROR BACKEND =====");
-    console.error(error);
-    process.exit(1);
-  });
-  .then(() => process.exit(0))
-  .catch((error) => {
     console.error(error);
     process.exit(1);
   });
