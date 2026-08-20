@@ -24,4 +24,5 @@ jobs:
       - name: Actualizar Firestore
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
         run: npm start
