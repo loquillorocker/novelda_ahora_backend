@@ -104,10 +104,6 @@ function capField(info, name) {
   return text(values[0]);
 }
 
-// ============================================================
-// HTTP
-// ============================================================
-
 async function fetchText(url, options = {}) {
   const response = await fetch(url, {
     ...options,
@@ -126,45 +122,6 @@ async function fetchText(url, options = {}) {
 
   return response.text();
 }
-
-async function fetchTextWithRetry(
-  url,
-  options = {},
-  maxAttempts = 4
-) {
-  let lastError;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await fetchText(url, options);
-    } catch (error) {
-      lastError = error;
-
-      const es429 =
-        error.message.includes("HTTP 429");
-
-      if (!es429 || attempt === maxAttempts) {
-        throw error;
-      }
-
-      const espera = attempt * 5000;
-
-      console.warn(
-        `AEMET respondió 429. Reintentando en ${espera / 1000}s...`
-      );
-
-      await new Promise(
-        (resolve) => setTimeout(resolve, espera)
-      );
-    }
-  }
-
-  throw lastError;
-}
-
-// ============================================================
-// AVISOS AEMET
-// ============================================================
 
 async function getFeedItems() {
   const xml = await fetchText(FEED_URL);
@@ -354,13 +311,16 @@ async function getAemetPrediction(endpoint) {
     `${AEMET_API_BASE}${endpoint}` +
     `?api_key=${encodeURIComponent(process.env.AEMET_API_KEY)}`;
 
-  const responseText = await fetchTextWithRetry(
-    url,
-    {},
-    4
-  );
+  const responseText = await fetchText(url);
 
   const metadata = JSON.parse(responseText);
+
+  console.log(
+    "===== RESPUESTA METADATA AEMET ====="
+  );
+  console.log(
+    JSON.stringify(metadata, null, 2)
+  );
 
   if (!metadata.datos) {
     throw new Error(
@@ -368,11 +328,7 @@ async function getAemetPrediction(endpoint) {
     );
   }
 
-  const datosText = await fetchTextWithRetry(
-    metadata.datos,
-    {},
-    4
-  );
+  const datosText = await fetchText(metadata.datos);
 
   return JSON.parse(datosText);
 }
@@ -423,22 +379,20 @@ async function actualizarTiempo() {
     `Consultando predicción AEMET para Novelda ${NOVELDA_CODIGO}...`
   );
 
-  let diaria;
+  const diaria = await getAemetPrediction(
+    `/prediccion/especifica/municipio/diaria/${NOVELDA_CODIGO}`
+  );
+
+  let horaria = null;
 
   try {
-    diaria = await getAemetPrediction(
-      `/prediccion/especifica/municipio/diaria/${NOVELDA_CODIGO}`
+    horaria = await getAemetPrediction(
+      `/prediccion/especifica/municipio/horaria/${NOVELDA_CODIGO}`
     );
   } catch (error) {
     console.warn(
-      `No se pudo actualizar el tiempo: ${error.message}`
+      `No se pudo obtener la predicción horaria: ${error.message}`
     );
-
-    console.warn(
-      "Los avisos AEMET se han actualizado correctamente."
-    );
-
-    return;
   }
 
   const prediccionDiaria =
@@ -455,6 +409,8 @@ async function actualizarTiempo() {
       admin.firestore.FieldValue.serverTimestamp(),
 
     diaria: prediccionDiaria,
+
+    horaria: horaria || [],
 
     activo: true,
   };
@@ -510,7 +466,13 @@ async function main() {
   console.log("");
   console.log("Actualizando tiempo de Novelda...");
 
-  await actualizarTiempo();
+  try {
+    await actualizarTiempo();
+  } catch (error) {
+    console.warn(
+      `No se pudo actualizar el tiempo: ${error.message}`
+    );
+  }
 
   console.log("");
   console.log("========================================");
@@ -526,3 +488,4 @@ main()
     console.error(error);
     process.exit(1);
   });
+
