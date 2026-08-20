@@ -421,106 +421,13 @@ async function getAemetPrediction(endpoint) {
       4
     );
 
-  const datos =
-    JSON.parse(datosText);
-
-  // ==========================================================
-  // DIAGNÓSTICO TEMPORAL
-  // ==========================================================
-
-  console.log("");
-  console.log(
-    "===== DIAGNÓSTICO RESPUESTA AEMET ====="
-  );
-
-  console.log(
-    "Endpoint:",
-    endpoint
-  );
-
-  console.log(
-    "Tipo de respuesta:",
-    Array.isArray(datos)
-      ? "ARRAY"
-      : typeof datos
-  );
-
-  if (Array.isArray(datos)) {
-    console.log(
-      "Elementos del array:",
-      datos.length
-    );
-
-    if (datos.length > 0) {
-      console.log(
-        "Claves primer elemento:",
-        Object.keys(datos[0])
-      );
-
-      console.log(
-        "Primer elemento:",
-        JSON.stringify(
-          datos[0],
-          null,
-          2
-        ).slice(0, 12000)
-      );
-    }
-  } else if (
-    datos &&
-    typeof datos === "object"
-  ) {
-    console.log(
-      "Claves principales:",
-      Object.keys(datos)
-    );
-
-    if (datos.prediccion) {
-      console.log(
-        "Claves de prediccion:",
-        Object.keys(datos.prediccion)
-      );
-
-      if (datos.prediccion.dia) {
-        console.log(
-          "Tipo de prediccion.dia:",
-          Array.isArray(
-            datos.prediccion.dia
-          )
-            ? "ARRAY"
-            : typeof datos.prediccion.dia
-        );
-
-        console.log(
-          "Cantidad de dias:",
-          asArray(
-            datos.prediccion.dia
-          ).length
-        );
-      } else {
-        console.log(
-          "NO EXISTE prediccion.dia"
-        );
-      }
-    } else {
-      console.log(
-        "NO EXISTE prediccion"
-      );
-    }
-  }
-
-  console.log(
-    "===== FIN DIAGNÓSTICO ====="
-  );
-  console.log("");
-
-  return datos;
+  return JSON.parse(datosText);
 }
 
 function extraerTemperaturas(prediccion) {
   const dias =
     asArray(
-      prediccion?.prediccion?.dia
+      prediccion?.[0]?.prediccion?.dia
     );
 
   return dias.map((dia) => {
@@ -604,9 +511,9 @@ async function actualizarTiempo() {
       );
 
     horaria =
-      resultadoHoraria?.prediccion?.dia
+      resultadoHoraria?.[0]?.prediccion?.dia
         ? asArray(
-            resultadoHoraria.prediccion.dia
+            resultadoHoraria[0].prediccion.dia
           )
         : [];
   } catch (error) {
