@@ -38,6 +38,10 @@ const parser = new XMLParser({
   trimValues: true,
 });
 
+// ============================================================
+// UTILIDADES
+// ============================================================
+
 function asArray(value) {
   if (value == null) return [];
   return Array.isArray(value) ? value : [value];
@@ -51,7 +55,11 @@ function text(value) {
   }
 
   if (typeof value === "object") {
-    return String(value["#text"] ?? value.text ?? "");
+    return String(
+      value["#text"] ??
+      value.text ??
+      ""
+    );
   }
 
   return "";
@@ -63,6 +71,10 @@ function normalise(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 }
+
+// ============================================================
+// AVISOS
+// ============================================================
 
 function severityFromCap(value) {
   const v = normalise(value);
@@ -104,12 +116,17 @@ function capField(info, name) {
   return text(values[0]);
 }
 
+// ============================================================
+// HTTP
+// ============================================================
+
 async function fetchText(url, options = {}) {
   const response = await fetch(url, {
     ...options,
     headers: {
       "User-Agent": "NoveldaAhora/1.0",
-      Accept: "application/rss+xml, application/xml, text/xml, */*",
+      Accept:
+        "application/rss+xml, application/xml, text/xml, */*",
       ...(options.headers || {}),
     },
   });
@@ -123,15 +140,59 @@ async function fetchText(url, options = {}) {
   return response.text();
 }
 
+async function fetchTextWithRetry(
+  url,
+  options = {},
+  maxAttempts = 4
+) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fetchText(url, options);
+    } catch (error) {
+      lastError = error;
+
+      const es429 =
+        error.message.includes("HTTP 429");
+
+      if (!es429 || attempt === maxAttempts) {
+        throw error;
+      }
+
+      const espera = attempt * 5000;
+
+      console.warn(
+        `AEMET respondió 429. Reintentando en ${espera / 1000}s...`
+      );
+
+      await new Promise(
+        (resolve) => setTimeout(resolve, espera)
+      );
+    }
+  }
+
+  throw lastError;
+}
+
+// ============================================================
+// AVISOS AEMET
+// ============================================================
+
 async function getFeedItems() {
   const xml = await fetchText(FEED_URL);
   const data = parser.parse(xml);
 
-  return asArray(data?.rss?.channel?.item);
+  return asArray(
+    data?.rss?.channel?.item
+  );
 }
 
 function getItemLink(item) {
-  return text(item.link?.["#text"] ?? item.link);
+  return text(
+    item.link?.["#text"] ??
+    item.link
+  );
 }
 
 async function parseCap(url) {
@@ -152,39 +213,51 @@ async function parseCap(url) {
     const firstInfo = asArray(info)[0];
     const areas = asArray(firstInfo.area);
 
-    const areaTexts = areas.map((area) =>
-      capField(area, "areaDesc")
+    const areaTexts = areas.map(
+      (area) => capField(area, "areaDesc")
     );
 
     return {
       identifier:
         text(data?.alert?.identifier) || url,
 
-      event: capField(firstInfo, "event"),
+      event:
+        capField(firstInfo, "event"),
 
-      headline: capField(firstInfo, "headline"),
+      headline:
+        capField(firstInfo, "headline"),
 
-      description: capField(firstInfo, "description"),
+      description:
+        capField(firstInfo, "description"),
 
-      instruction: capField(firstInfo, "instruction"),
+      instruction:
+        capField(firstInfo, "instruction"),
 
-      severity: capField(firstInfo, "severity"),
+      severity:
+        capField(firstInfo, "severity"),
 
-      urgency: capField(firstInfo, "urgency"),
+      urgency:
+        capField(firstInfo, "urgency"),
 
-      certainty: capField(firstInfo, "certainty"),
+      certainty:
+        capField(firstInfo, "certainty"),
 
-      onset: capField(firstInfo, "onset"),
+      onset:
+        capField(firstInfo, "onset"),
 
-      expires: capField(firstInfo, "expires"),
+      expires:
+        capField(firstInfo, "expires"),
 
-      areas: areaTexts,
+      areas:
+        areaTexts,
 
-      level: severityFromCap(
-        capField(firstInfo, "severity")
-      ),
+      level:
+        severityFromCap(
+          capField(firstInfo, "severity")
+        ),
 
-      sourceUrl: url,
+      sourceUrl:
+        url,
     };
   } catch (error) {
     console.warn(
@@ -218,16 +291,25 @@ function affectsNovelda(cap) {
 
 function documentId(identifier) {
   return identifier
-    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .replace(
+      /[^a-zA-Z0-9_-]/g,
+      "_"
+    )
     .slice(0, 500);
 }
 
 async function saveCap(cap) {
-  if (!cap || !affectsNovelda(cap)) {
+  if (
+    !cap ||
+    !affectsNovelda(cap)
+  ) {
     return false;
   }
 
-  const id = documentId(cap.identifier);
+  const id =
+    documentId(
+      cap.identifier
+    );
 
   const data = {
     id: id,
@@ -293,7 +375,10 @@ async function saveCap(cap) {
   await db
     .collection(COLLECTION_AVISOS)
     .doc(id)
-    .set(data, { merge: true });
+    .set(
+      data,
+      { merge: true }
+    );
 
   console.log(
     `Guardado: ${data.titulo} [${data.nivel}]`
@@ -309,18 +394,19 @@ async function saveCap(cap) {
 async function getAemetPrediction(endpoint) {
   const url =
     `${AEMET_API_BASE}${endpoint}` +
-    `?api_key=${encodeURIComponent(process.env.AEMET_API_KEY)}`;
+    `?api_key=${encodeURIComponent(
+      process.env.AEMET_API_KEY
+    )}`;
 
-  const responseText = await fetchText(url);
+  const responseText =
+    await fetchTextWithRetry(
+      url,
+      {},
+      4
+    );
 
-  const metadata = JSON.parse(responseText);
-
-  console.log(
-    "===== RESPUESTA METADATA AEMET ====="
-  );
-  console.log(
-    JSON.stringify(metadata, null, 2)
-  );
+  const metadata =
+    JSON.parse(responseText);
 
   if (!metadata.datos) {
     throw new Error(
@@ -328,22 +414,29 @@ async function getAemetPrediction(endpoint) {
     );
   }
 
-  const datosText = await fetchText(metadata.datos);
+  const datosText =
+    await fetchTextWithRetry(
+      metadata.datos,
+      {},
+      4
+    );
 
-console.log("===== DATOS PREDICCIÓN AEMET =====");
-console.log(datosText);
-
-return JSON.parse(datosText);
+  return JSON.parse(datosText);
 }
 
 function extraerTemperaturas(prediccion) {
-  const dias = asArray(prediccion);
+  const dias =
+    asArray(
+      prediccion?.prediccion?.dia
+    );
 
   return dias.map((dia) => {
-    const temperatura = dia.temperatura || {};
+    const temperatura =
+      dia.temperatura || {};
 
     return {
-      fecha: dia.fecha || null,
+      fecha:
+        dia.fecha || null,
 
       maxima:
         temperatura.maxima ?? null,
@@ -351,19 +444,25 @@ function extraerTemperaturas(prediccion) {
       minima:
         temperatura.minima ?? null,
 
-      madrugada:
+      datoTemperatura:
         temperatura.dato
-          ? asArray(temperatura.dato)
+          ? asArray(
+              temperatura.dato
+            )
           : [],
 
       estadoCielo:
         dia.estadoCielo
-          ? asArray(dia.estadoCielo)
+          ? asArray(
+              dia.estadoCielo
+            )
           : [],
 
       viento:
         dia.viento
-          ? asArray(dia.viento)
+          ? asArray(
+              dia.viento
+            )
           : [],
 
       humedadRelativa:
@@ -371,7 +470,9 @@ function extraerTemperaturas(prediccion) {
 
       probPrecipitacion:
         dia.probPrecipitacion
-          ? asArray(dia.probPrecipitacion)
+          ? asArray(
+              dia.probPrecipitacion
+            )
           : [],
     };
   });
@@ -382,16 +483,39 @@ async function actualizarTiempo() {
     `Consultando predicción AEMET para Novelda ${NOVELDA_CODIGO}...`
   );
 
-  const diaria = await getAemetPrediction(
-    `/prediccion/especifica/municipio/diaria/${NOVELDA_CODIGO}`
-  );
-
-  let horaria = null;
+  let diaria;
 
   try {
-    horaria = await getAemetPrediction(
-      `/prediccion/especifica/municipio/horaria/${NOVELDA_CODIGO}`
+    diaria =
+      await getAemetPrediction(
+        `/prediccion/especifica/municipio/diaria/${NOVELDA_CODIGO}`
+      );
+  } catch (error) {
+    console.warn(
+      `No se pudo actualizar el tiempo: ${error.message}`
     );
+
+    console.warn(
+      "Los avisos AEMET se han actualizado correctamente."
+    );
+
+    return;
+  }
+
+  let horaria = [];
+
+  try {
+    const resultadoHoraria =
+      await getAemetPrediction(
+        `/prediccion/especifica/municipio/horaria/${NOVELDA_CODIGO}`
+      );
+
+    horaria =
+      resultadoHoraria?.prediccion?.dia
+        ? asArray(
+            resultadoHoraria.prediccion.dia
+          )
+        : [];
   } catch (error) {
     console.warn(
       `No se pudo obtener la predicción horaria: ${error.message}`
@@ -402,20 +526,26 @@ async function actualizarTiempo() {
     extraerTemperaturas(diaria);
 
   const data = {
-    municipio: "Novelda",
+    municipio:
+      "Novelda",
 
-    codigoMunicipio: NOVELDA_CODIGO,
+    codigoMunicipio:
+      NOVELDA_CODIGO,
 
-    fuente: "AEMET",
+    fuente:
+      "AEMET",
 
     actualizadoEn:
       admin.firestore.FieldValue.serverTimestamp(),
 
-    diaria: prediccionDiaria,
+    diaria:
+      prediccionDiaria,
 
-    horaria: horaria || [],
+    horaria:
+      horaria,
 
-    activo: true,
+    activo:
+      true,
   };
 
   await db
@@ -433,14 +563,26 @@ async function actualizarTiempo() {
 // ============================================================
 
 async function main() {
-  console.log("========================================");
-  console.log("NOVELDA AHORA - ACTUALIZACIÓN");
-  console.log("========================================");
+  console.log(
+    "========================================"
+  );
+
+  console.log(
+    "NOVELDA AHORA - ACTUALIZACIÓN"
+  );
+
+  console.log(
+    "========================================"
+  );
 
   console.log("");
-  console.log("Consultando avisos AEMET...");
 
-  const items = await getFeedItems();
+  console.log(
+    "Consultando avisos AEMET..."
+  );
+
+  const items =
+    await getFeedItems();
 
   console.log(
     `Entradas RSS: ${items.length}`
@@ -449,15 +591,20 @@ async function main() {
   let saved = 0;
 
   for (const item of items) {
-    const link = getItemLink(item);
+    const link =
+      getItemLink(item);
 
     if (!link) {
       continue;
     }
 
-    const cap = await parseCap(link);
+    const cap =
+      await parseCap(link);
 
-    if (cap && await saveCap(cap)) {
+    if (
+      cap &&
+      await saveCap(cap)
+    ) {
       saved++;
     }
   }
@@ -467,28 +614,40 @@ async function main() {
   );
 
   console.log("");
-  console.log("Actualizando tiempo de Novelda...");
 
-  try {
-    await actualizarTiempo();
-  } catch (error) {
-    console.warn(
-      `No se pudo actualizar el tiempo: ${error.message}`
-    );
-  }
+  console.log(
+    "Actualizando tiempo de Novelda..."
+  );
+
+  await actualizarTiempo();
 
   console.log("");
-  console.log("========================================");
-  console.log("ACTUALIZACIÓN COMPLETADA");
-  console.log("========================================");
+
+  console.log(
+    "========================================"
+  );
+
+  console.log(
+    "ACTUALIZACIÓN COMPLETADA"
+  );
+
+  console.log(
+    "========================================"
+  );
 }
 
 main()
-  .then(() => process.exit(0))
-  .catch((error) => {
-    console.error("");
-    console.error("===== ERROR BACKEND =====");
-    console.error(error);
-    process.exit(1);
-  });
+  .then(
+    () => process.exit(0)
+  )
+  .catch(
+    (error) => {
+      console.error("");
+      console.error(
+        "===== ERROR BACKEND ====="
+      );
+      console.error(error);
+      process.exit(1);
+    }
+  );
 
