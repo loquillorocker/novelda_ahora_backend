@@ -330,7 +330,10 @@ async function getAemetPrediction(endpoint) {
 
   const datosText = await fetchText(metadata.datos);
 
-  return JSON.parse(datosText);
+console.log("===== DATOS PREDICCIÓN AEMET =====");
+console.log(datosText);
+
+return JSON.parse(datosText);
 }
 
 function extraerTemperaturas(prediccion) {
