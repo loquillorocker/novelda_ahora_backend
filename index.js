@@ -4,10 +4,21 @@ const { XMLParser } = require("fast-xml-parser");
 const FEED_URL =
   "https://www.aemet.es/documentos_d/eltiempo/prediccion/avisos/rss/CAP_AFAZ770302_RSS.xml";
 
-const COLLECTION = "avisos_creados";
+const AEMET_API_BASE =
+  "https://opendata.aemet.es/opendata/api";
+
+const NOVELDA_CODIGO = "03660";
+
+const COLLECTION_AVISOS = "avisos_creados";
+const COLLECTION_TIEMPO = "tiempo";
+const DOCUMENTO_TIEMPO = "novelda";
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
   throw new Error("Falta FIREBASE_SERVICE_ACCOUNT_JSON");
+}
+
+if (!process.env.AEMET_API_KEY) {
+  throw new Error("Falta AEMET_API_KEY");
 }
 
 const serviceAccount = JSON.parse(
@@ -93,11 +104,13 @@ function capField(info, name) {
   return text(values[0]);
 }
 
-async function fetchText(url) {
+async function fetchText(url, options = {}) {
   const response = await fetch(url, {
+    ...options,
     headers: {
       "User-Agent": "NoveldaAhora/1.0",
       Accept: "application/rss+xml, application/xml, text/xml, */*",
+      ...(options.headers || {}),
     },
   });
 
@@ -278,7 +291,7 @@ async function saveCap(cap) {
   };
 
   await db
-    .collection(COLLECTION)
+    .collection(COLLECTION_AVISOS)
     .doc(id)
     .set(data, { merge: true });
 
@@ -289,7 +302,130 @@ async function saveCap(cap) {
   return true;
 }
 
+// ============================================================
+// TIEMPO AEMET
+// ============================================================
+
+async function getAemetPrediction(endpoint) {
+  const url =
+    `${AEMET_API_BASE}${endpoint}` +
+    `?api_key=${encodeURIComponent(process.env.AEMET_API_KEY)}`;
+
+  const responseText = await fetchText(url);
+
+  const metadata = JSON.parse(responseText);
+
+  if (!metadata.datos) {
+    throw new Error(
+      "AEMET no devolvió la URL de datos"
+    );
+  }
+
+  const datosText = await fetchText(metadata.datos);
+
+  return JSON.parse(datosText);
+}
+
+function extraerTemperaturas(prediccion) {
+  const dias = asArray(prediccion);
+
+  return dias.map((dia) => {
+    const temperatura = dia.temperatura || {};
+
+    return {
+      fecha: dia.fecha || null,
+
+      maxima:
+        temperatura.maxima ?? null,
+
+      minima:
+        temperatura.minima ?? null,
+
+      madrugada:
+        temperatura.dato
+          ? asArray(temperatura.dato)
+          : [],
+
+      estadoCielo:
+        dia.estadoCielo
+          ? asArray(dia.estadoCielo)
+          : [],
+
+      viento:
+        dia.viento
+          ? asArray(dia.viento)
+          : [],
+
+      humedadRelativa:
+        dia.humedadRelativa || null,
+
+      probPrecipitacion:
+        dia.probPrecipitacion
+          ? asArray(dia.probPrecipitacion)
+          : [],
+    };
+  });
+}
+
+async function actualizarTiempo() {
+  console.log(
+    `Consultando predicción AEMET para Novelda ${NOVELDA_CODIGO}...`
+  );
+
+  const diaria = await getAemetPrediction(
+    `/prediccion/especifica/municipio/diaria/${NOVELDA_CODIGO}`
+  );
+
+  let horaria = null;
+
+  try {
+    horaria = await getAemetPrediction(
+      `/prediccion/especifica/municipio/horaria/${NOVELDA_CODIGO}`
+    );
+  } catch (error) {
+    console.warn(
+      `No se pudo obtener la predicción horaria: ${error.message}`
+    );
+  }
+
+  const prediccionDiaria = extraerTemperaturas(diaria);
+
+  const data = {
+    municipio: "Novelda",
+    codigoMunicipio: NOVELDA_CODIGO,
+
+    fuente: "AEMET",
+
+    actualizadoEn:
+      admin.firestore.FieldValue.serverTimestamp(),
+
+    diaria: prediccionDiaria,
+
+    horaria: horaria || [],
+
+    activo: true,
+  };
+
+  await db
+    .collection(COLLECTION_TIEMPO)
+    .doc(DOCUMENTO_TIEMPO)
+    .set(data);
+
+  console.log(
+    `Tiempo de Novelda actualizado. Días: ${prediccionDiaria.length}`
+  );
+}
+
+// ============================================================
+// MAIN
+// ============================================================
+
 async function main() {
+  console.log("========================================");
+  console.log("NOVELDA AHORA - ACTUALIZACIÓN");
+  console.log("========================================");
+
+  console.log("");
   console.log("Consultando avisos AEMET...");
 
   const items = await getFeedItems();
@@ -317,9 +453,26 @@ async function main() {
   console.log(
     `Avisos guardados/actualizados: ${saved}`
   );
+
+  console.log("");
+  console.log("Actualizando tiempo de Novelda...");
+
+  await actualizarTiempo();
+
+  console.log("");
+  console.log("========================================");
+  console.log("ACTUALIZACIÓN COMPLETADA");
+  console.log("========================================");
 }
 
 main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error("");
+    console.error("===== ERROR BACKEND =====");
+    console.error(error);
+    process.exit(1);
+  });
   .then(() => process.exit(0))
   .catch((error) => {
     console.error(error);
