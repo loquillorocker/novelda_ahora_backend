@@ -1,24 +1,53 @@
-import 'dart:io';
-import 'dart:ui' as ui;
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/noticia.dart';
 import '../services/firestore_noticias_service.dart';
+import '../services/importador_noticias_service.dart';
 
-class NoticiasScreen extends StatelessWidget {
-  NoticiasScreen({super.key});
+class NoticiasScreen extends StatefulWidget {
+  const NoticiasScreen({super.key});
 
+  @override
+  State<NoticiasScreen> createState() => _NoticiasScreenState();
+}
+
+class _NoticiasScreenState extends State<NoticiasScreen> {
   final FirestoreNoticiasService _service =
   FirestoreNoticiasService();
+
+  final ImportadorNoticiasService _importador =
+  ImportadorNoticiasService();
+
+  CategoriaNoticia? _categoriaSeleccionada;
+
+  @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _actualizarNoticiasSilenciosamente();
+    });
+  }
+
+  Future<void> _actualizarNoticiasSilenciosamente() async {
+    try {
+      await _importador.importarTodas();
+    } catch (e) {
+      debugPrint(
+        '===== ERROR ACTUALIZACIÓN NOTICIAS NOVELDA =====',
+      );
+      debugPrint(e.toString());
+    }
+  }
 
   Future<void> _abrirNoticia(
       BuildContext context,
       Noticia noticia,
       ) async {
-    final uri = Uri.tryParse(noticia.urlOriginal);
+    final uri = Uri.tryParse(
+      noticia.urlOriginal,
+    );
 
     if (uri == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -47,12 +76,76 @@ class NoticiasScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _actualizarNoticias() async {
+    try {
+      await _importador.importarTodas();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se pudieron actualizar las noticias.',
+          ),
+        ),
+      );
+    }
+  }
+
+  List<CategoriaNoticia> _obtenerCategoriasDisponibles(
+      List<Noticia> noticias,
+      ) {
+    final categorias = noticias
+        .where(
+          (noticia) =>
+      noticia.tipo == TipoContenido.noticia,
+    )
+        .map(
+          (noticia) => noticia.categoria,
+    )
+        .toSet()
+        .toList();
+
+    categorias.sort(
+          (a, b) => _nombreCategoria(a).compareTo(
+        _nombreCategoria(b),
+      ),
+    );
+
+    return categorias;
+  }
+
+  List<Noticia> _filtrarNoticias(
+      List<Noticia> noticias,
+      ) {
+    final noticiasSoloNoticias = noticias
+        .where(
+          (noticia) =>
+      noticia.tipo == TipoContenido.noticia,
+    )
+        .toList();
+
+    if (_categoriaSeleccionada == null) {
+      return noticiasSoloNoticias;
+    }
+
+    return noticiasSoloNoticias
+        .where(
+          (noticia) =>
+      noticia.categoria ==
+          _categoriaSeleccionada,
+    )
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Noticias',
+          'Noticias de Novelda',
           style: TextStyle(
             fontWeight: FontWeight.bold,
           ),
@@ -86,38 +179,281 @@ class NoticiasScreen extends StatelessWidget {
           final noticias = snapshot.data ?? [];
 
           if (noticias.isEmpty) {
-            return const Center(
-              child: Text(
-                'No hay noticias disponibles.',
+            return RefreshIndicator(
+              onRefresh: _actualizarNoticias,
+              child: ListView(
+                physics:
+                const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 250),
+                  Center(
+                    child: Text(
+                      'No hay noticias de Novelda disponibles.',
+                    ),
+                  ),
+                ],
               ),
             );
           }
 
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(
-              12,
-              12,
-              12,
-              24,
-            ),
-            itemCount: noticias.length,
-            separatorBuilder: (_, _) =>
-            const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final noticia = noticias[index];
+          final categoriasDisponibles =
+          _obtenerCategoriasDisponibles(
+            noticias,
+          );
 
-              return _NoticiaCard(
-                noticia: noticia,
-                onTap: () => _abrirNoticia(
+          final noticiasFiltradas =
+          _filtrarNoticias(noticias);
+
+          return RefreshIndicator(
+            onRefresh: _actualizarNoticias,
+            child: ListView(
+              physics:
+              const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(
+                12,
+                12,
+                12,
+                24,
+              ),
+              children: [
+                _buildCategorias(
                   context,
-                  noticia,
+                  categoriasDisponibles,
                 ),
-              );
-            },
+                const SizedBox(height: 14),
+                if (noticiasFiltradas.isEmpty)
+                  _buildSinNoticiasCategoria(
+                    context,
+                  )
+                else
+                  ...List.generate(
+                    noticiasFiltradas.length,
+                        (index) {
+                      final noticia =
+                      noticiasFiltradas[index];
+
+                      return Padding(
+                        padding:
+                        const EdgeInsets.only(
+                          bottom: 10,
+                        ),
+                        child: _NoticiaCard(
+                          noticia: noticia,
+                          onTap: () =>
+                              _abrirNoticia(
+                                context,
+                                noticia,
+                              ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
           );
         },
       ),
     );
+  }
+
+  Widget _buildCategorias(
+      BuildContext context,
+      List<CategoriaNoticia> categoriasDisponibles,
+      ) {
+    return SizedBox(
+      height: 42,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          _buildCategoriaChip(
+            context,
+            label: 'Todas',
+            icon: Icons.article_outlined,
+            seleccionado:
+            _categoriaSeleccionada == null,
+            onTap: () {
+              setState(() {
+                _categoriaSeleccionada = null;
+              });
+            },
+          ),
+          ...categoriasDisponibles.map(
+                (categoria) {
+              return _buildCategoriaChip(
+                context,
+                label: _nombreCategoria(
+                  categoria,
+                ),
+                icon: _iconoCategoria(
+                  categoria,
+                ),
+                seleccionado:
+                _categoriaSeleccionada ==
+                    categoria,
+                onTap: () {
+                  setState(() {
+                    _categoriaSeleccionada =
+                        categoria;
+                  });
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoriaChip(
+      BuildContext context, {
+        required String label,
+        required IconData icon,
+        required bool seleccionado,
+        required VoidCallback onTap,
+      }) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(
+        right: 8,
+      ),
+      child: FilterChip(
+        selected: seleccionado,
+        onSelected: (_) => onTap(),
+        avatar: Icon(
+          icon,
+          size: 17,
+          color: seleccionado
+              ? theme.colorScheme.onPrimary
+              : theme.colorScheme.primary,
+        ),
+        label: Text(label),
+        labelStyle: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: seleccionado
+              ? theme.colorScheme.onPrimary
+              : theme.colorScheme.onSurface,
+        ),
+        selectedColor:
+        theme.colorScheme.primary,
+        checkmarkColor:
+        theme.colorScheme.onPrimary,
+        backgroundColor:
+        theme.colorScheme.surfaceContainerHighest,
+        side: BorderSide.none,
+        padding: const EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: 6,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSinNoticiasCategoria(
+      BuildContext context,
+      ) {
+    final nombre = _categoriaSeleccionada != null
+        ? _nombreCategoria(
+      _categoriaSeleccionada!,
+    )
+        : 'esta categoría';
+
+    return Card(
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Icon(
+              Icons.article_outlined,
+              size: 42,
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurfaceVariant,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No hay noticias de $nombre.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyLarge,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _nombreCategoria(
+      CategoriaNoticia categoria,
+      ) {
+    switch (categoria) {
+      case CategoriaNoticia.actualidad:
+        return 'Actualidad';
+      case CategoriaNoticia.sucesos:
+        return 'Sucesos';
+      case CategoriaNoticia.politica:
+        return 'Política';
+      case CategoriaNoticia.sociedad:
+        return 'Sociedad';
+      case CategoriaNoticia.cultura:
+        return 'Cultura';
+      case CategoriaNoticia.fiestas:
+        return 'Fiestas';
+      case CategoriaNoticia.deportes:
+        return 'Deportes';
+      case CategoriaNoticia.economia:
+        return 'Economía';
+      case CategoriaNoticia.educacion:
+        return 'Educación';
+      case CategoriaNoticia.salud:
+        return 'Salud';
+      case CategoriaNoticia.servicios:
+        return 'Servicios';
+      case CategoriaNoticia.medioAmbiente:
+        return 'Medio ambiente';
+      case CategoriaNoticia.trafico:
+        return 'Tráfico';
+      case CategoriaNoticia.agenda:
+        return 'Agenda';
+    }
+  }
+
+  IconData _iconoCategoria(
+      CategoriaNoticia categoria,
+      ) {
+    switch (categoria) {
+      case CategoriaNoticia.actualidad:
+        return Icons.article_outlined;
+      case CategoriaNoticia.sucesos:
+        return Icons.warning_amber_outlined;
+      case CategoriaNoticia.politica:
+        return Icons.account_balance_outlined;
+      case CategoriaNoticia.sociedad:
+        return Icons.groups_outlined;
+      case CategoriaNoticia.cultura:
+        return Icons.museum_outlined;
+      case CategoriaNoticia.fiestas:
+        return Icons.celebration_outlined;
+      case CategoriaNoticia.deportes:
+        return Icons.sports_soccer_outlined;
+      case CategoriaNoticia.economia:
+        return Icons.euro_outlined;
+      case CategoriaNoticia.educacion:
+        return Icons.school_outlined;
+      case CategoriaNoticia.salud:
+        return Icons.health_and_safety_outlined;
+      case CategoriaNoticia.servicios:
+        return Icons.miscellaneous_services_outlined;
+      case CategoriaNoticia.medioAmbiente:
+        return Icons.eco_outlined;
+      case CategoriaNoticia.trafico:
+        return Icons.traffic_outlined;
+      case CategoriaNoticia.agenda:
+        return Icons.event_outlined;
+    }
   }
 }
 
@@ -145,7 +481,9 @@ class _NoticiaCard extends StatelessWidget {
           CrossAxisAlignment.start,
           children: [
             if (noticia.imagenUrl != null &&
-                noticia.imagenUrl!.trim().isNotEmpty)
+                noticia.imagenUrl!
+                    .trim()
+                    .isNotEmpty)
               _buildImage(context),
             Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -159,13 +497,19 @@ class _NoticiaCard extends StatelessWidget {
                 CrossAxisAlignment.start,
                 children: [
                   Text(
-                    noticia.categoria.name.toUpperCase(),
-                    style:
-                    theme.textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                    _nombreCategoria(
+                      noticia.categoria,
+                    ).toUpperCase(),
+                    style: theme
+                        .textTheme
+                        .labelMedium
+                        ?.copyWith(
+                      fontWeight:
+                      FontWeight.w700,
                       letterSpacing: 0.7,
-                      color:
-                      theme.colorScheme.primary,
+                      color: theme
+                          .colorScheme
+                          .primary,
                     ),
                   ),
                   const SizedBox(height: 7),
@@ -174,9 +518,12 @@ class _NoticiaCard extends StatelessWidget {
                     maxLines: 4,
                     overflow:
                     TextOverflow.ellipsis,
-                    style:
-                    theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                    style: theme
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(
+                      fontWeight:
+                      FontWeight.w700,
                       height: 1.25,
                     ),
                   ),
@@ -230,10 +577,8 @@ class _NoticiaCard extends StatelessWidget {
 
     return AspectRatio(
       aspectRatio: 16 / 9,
-      child: Image(
-        image: _ImagenSslPersonalizada(
-          noticia.imagenUrl!,
-        ),
+      child: Image.network(
+        noticia.imagenUrl!,
         width: double.infinity,
         fit: BoxFit.cover,
         errorBuilder:
@@ -254,114 +599,39 @@ class _NoticiaCard extends StatelessWidget {
       ),
     );
   }
-}
 
-/// ImageProvider personalizada.
-///
-/// Algunas imágenes de Novelda Digital tienen un problema
-/// con la cadena de certificados SSL del servidor.
-/// Flutter las rechaza aunque el navegador pueda descargarlas.
-///
-/// Esta clase utiliza un HttpClient que acepta ese certificado
-/// para poder descargar la imagen.
-class _ImagenSslPersonalizada
-    extends ImageProvider<_ImagenSslPersonalizada> {
-  const _ImagenSslPersonalizada(this.url);
-
-  final String url;
-
-  @override
-  Future<_ImagenSslPersonalizada> obtainKey(
-      ImageConfiguration configuration,
+  String _nombreCategoria(
+      CategoriaNoticia categoria,
       ) {
-    return SynchronousFuture<_ImagenSslPersonalizada>(
-      this,
-    );
-  }
-
-  @override
-  ImageStreamCompleter loadImage(
-      _ImagenSslPersonalizada key,
-      ImageDecoderCallback decode,
-      ) {
-    final completer =
-    MultiFrameImageStreamCompleter(
-      codec: _cargarImagen(
-        key.url,
-        decode,
-      ),
-      scale: 1.0,
-      informationCollector: () sync* {
-        yield DiagnosticsProperty<String>(
-          'URL',
-          key.url,
-        );
-      },
-    );
-
-    return completer;
-  }
-
-  Future<ui.Codec> _cargarImagen(
-      String url,
-      ImageDecoderCallback decode,
-      ) async {
-    final uri = Uri.parse(url);
-
-    final client = HttpClient();
-
-    client.badCertificateCallback =
-        (
-        X509Certificate cert,
-        String host,
-        int port,
-        ) {
-      if (host == 'img.noveldadigital.es') {
-        return true;
-      }
-
-      return false;
-    };
-
-    try {
-      final request =
-      await client.getUrl(uri);
-
-      request.headers.set(
-        HttpHeaders.userAgentHeader,
-        'Mozilla/5.0',
-      );
-
-      final response =
-      await request.close();
-
-      if (response.statusCode != 200) {
-        throw Exception(
-          'HTTP ${response.statusCode}',
-        );
-      }
-
-      final bytes =
-      await consolidateHttpClientResponseBytes(
-        response,
-      );
-
-      final buffer =
-      await ui.ImmutableBuffer.fromUint8List(
-        Uint8List.fromList(bytes),
-      );
-
-      return decode(buffer);
-    } finally {
-      client.close();
+    switch (categoria) {
+      case CategoriaNoticia.actualidad:
+        return 'Actualidad';
+      case CategoriaNoticia.sucesos:
+        return 'Sucesos';
+      case CategoriaNoticia.politica:
+        return 'Política';
+      case CategoriaNoticia.sociedad:
+        return 'Sociedad';
+      case CategoriaNoticia.cultura:
+        return 'Cultura';
+      case CategoriaNoticia.fiestas:
+        return 'Fiestas';
+      case CategoriaNoticia.deportes:
+        return 'Deportes';
+      case CategoriaNoticia.economia:
+        return 'Economía';
+      case CategoriaNoticia.educacion:
+        return 'Educación';
+      case CategoriaNoticia.salud:
+        return 'Salud';
+      case CategoriaNoticia.servicios:
+        return 'Servicios';
+      case CategoriaNoticia.medioAmbiente:
+        return 'Medio ambiente';
+      case CategoriaNoticia.trafico:
+        return 'Tráfico';
+      case CategoriaNoticia.agenda:
+        return 'Agenda';
     }
   }
-
-  @override
-  bool operator ==(Object other) =>
-      other is _ImagenSslPersonalizada &&
-          other.url == url;
-
-  @override
-  int get hashCode => url.hashCode;
 }

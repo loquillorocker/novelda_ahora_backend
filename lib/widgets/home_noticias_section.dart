@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/noticia.dart';
 import '../services/firestore_noticias_service.dart';
+import '../services/importador_noticias_service.dart';
 import '../screens/noticias_screen.dart';
 
 class HomeNoticiasSection extends StatefulWidget {
@@ -17,10 +18,11 @@ class HomeNoticiasSection extends StatefulWidget {
 
 class _HomeNoticiasSectionState
     extends State<HomeNoticiasSection> {
-  static const String _cloudinaryCloudName = 'gg9ef0fm';
-
   final FirestoreNoticiasService _service =
   FirestoreNoticiasService();
+
+  final ImportadorNoticiasService _importador =
+  ImportadorNoticiasService();
 
   final PageController _pageController =
   PageController(
@@ -31,10 +33,37 @@ class _HomeNoticiasSectionState
   ValueNotifier<int>(0);
 
   @override
+  void initState() {
+    super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _actualizarNoticiasSilenciosamente();
+    });
+  }
+
+  @override
   void dispose() {
     _pageController.dispose();
     _paginaActual.dispose();
     super.dispose();
+  }
+
+  Future<void> _actualizarNoticiasSilenciosamente() async {
+    try {
+      final total = await _importador.importarTodas();
+
+      debugPrint(
+        '===== ACTUALIZACIÓN NOTICIAS HOME =====',
+      );
+      debugPrint(
+        'Noticias/vídeos procesados: $total',
+      );
+    } catch (e) {
+      debugPrint(
+        '===== ERROR ACTUALIZACIÓN NOTICIAS HOME =====',
+      );
+      debugPrint(e.toString());
+    }
   }
 
   @override
@@ -67,7 +96,7 @@ class _HomeNoticiasSectionState
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => NoticiasScreen(),
+                builder: (_) => const NoticiasScreen(),
               ),
             );
           },
@@ -106,14 +135,16 @@ class _HomeNoticiasSectionState
         final noticias = (snapshot.data ?? [])
             .where(
               (noticia) =>
-          noticia.tipo == TipoContenido.noticia,
+          noticia.tipo == TipoContenido.noticia &&
+              noticia.ubicacion?.trim().toLowerCase() ==
+                  'novelda',
         )
             .toList();
 
         if (noticias.isEmpty) {
           return _buildMessageCard(
             context,
-            'Todavía no hay noticias disponibles.',
+            'Todavía no hay noticias de Novelda disponibles.',
           );
         }
 
@@ -230,7 +261,8 @@ class _HomeNoticiasSectionState
                         Icon(
                           Icons.public,
                           size: 15,
-                          color: theme.colorScheme
+                          color: theme
+                              .colorScheme
                               .onSurfaceVariant,
                         ),
                         const SizedBox(width: 5),
@@ -254,7 +286,8 @@ class _HomeNoticiasSectionState
                         Icon(
                           Icons.arrow_forward_ios,
                           size: 12,
-                          color: theme.colorScheme
+                          color: theme
+                              .colorScheme
                               .onSurfaceVariant,
                         ),
                       ],
@@ -273,11 +306,9 @@ class _HomeNoticiasSectionState
       BuildContext context,
       Noticia noticia,
       ) {
-    final imagenUrl = _convertirImagenCloudinary(
-      noticia.imagenUrl,
-    );
+    final imagenUrl = noticia.imagenUrl?.trim();
 
-    if (imagenUrl == null) {
+    if (imagenUrl == null || imagenUrl.isEmpty) {
       return _buildImagePlaceholder(context);
     }
 
@@ -305,38 +336,20 @@ class _HomeNoticiasSectionState
             error,
             stackTrace,
             ) {
+          debugPrint(
+            '===== ERROR IMAGEN NOTICIA =====',
+          );
+          debugPrint(
+            'URL: $imagenUrl',
+          );
+          debugPrint(
+            error.toString(),
+          );
+
           return _buildImagePlaceholder(context);
         },
       ),
     );
-  }
-
-  String? _convertirImagenCloudinary(
-      String? url,
-      ) {
-    if (url == null || url.trim().isEmpty) {
-      return null;
-    }
-
-    final limpia = url.trim();
-
-    if (limpia.contains(
-      'res.cloudinary.com/',
-    )) {
-      return limpia;
-    }
-
-    if (!limpia.startsWith('http://') &&
-        !limpia.startsWith('https://')) {
-      return limpia;
-    }
-
-    final encodedUrl =
-    Uri.encodeComponent(limpia);
-
-    return 'https://res.cloudinary.com/'
-        '$_cloudinaryCloudName/image/fetch/'
-        '$encodedUrl';
   }
 
   Widget _buildImagePlaceholder(
@@ -373,6 +386,11 @@ class _HomeNoticiasSectionState
           pagina,
           child,
           ) {
+        final paginaSegura =
+        pagina >= cantidad
+            ? cantidad - 1
+            : pagina;
+
         return Row(
           mainAxisAlignment:
           MainAxisAlignment.center,
@@ -380,7 +398,7 @@ class _HomeNoticiasSectionState
             cantidad,
                 (index) {
               final activo =
-                  index == pagina;
+                  index == paginaSegura;
 
               return AnimatedContainer(
                 duration: const Duration(

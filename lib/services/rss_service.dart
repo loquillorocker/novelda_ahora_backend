@@ -22,17 +22,34 @@ class NoticiaRss {
 class RssService {
   static const String _cloudinaryCloudName = 'gg9ef0fm';
 
-  Future<List<NoticiaRss>> obtenerItems(String rssUrl) async {
+  static const Duration _timeout = Duration(seconds: 10);
+
+  Future<List<NoticiaRss>> obtenerItems(
+      String rssUrl,
+      ) async {
     final uri = Uri.parse(rssUrl);
 
-    final respuesta = await http.get(
-      uri,
-      headers: const {
-        'User-Agent': 'NoveldaAhora/1.0',
-        'Accept':
-        'application/rss+xml, application/xml, text/xml, */*',
-      },
-    );
+    final usaImagenOriginal =
+    rssUrl.contains('vinalopo.com');
+
+    late http.Response respuesta;
+
+    try {
+      respuesta = await http
+          .get(
+        uri,
+        headers: const {
+          'User-Agent': 'NoveldaAhora/1.0',
+          'Accept':
+          'application/rss+xml, application/xml, text/xml, */*',
+        },
+      )
+          .timeout(_timeout);
+    } catch (e) {
+      throw Exception(
+        'No se pudo descargar el RSS: $rssUrl',
+      );
+    }
 
     if (respuesta.statusCode != 200) {
       throw Exception(
@@ -42,6 +59,12 @@ class RssService {
     }
 
     final xml = respuesta.body.trim();
+
+    if (xml.isEmpty) {
+      throw Exception(
+        'La fuente RSS devolvió una respuesta vacía.',
+      );
+    }
 
     if (!xml.startsWith('<')) {
       throw Exception(
@@ -73,15 +96,18 @@ class RssService {
         titulo,
       );
 
-      final contenidoHtml = _extraerContenidoEncoded(
-        bloqueItem,
-      );
+      final contenidoHtml =
+      _extraerContenidoEncoded(bloqueItem);
 
       final imagen = _extraerImagen(
         bloqueItem: bloqueItem,
         descripcion: descripcion,
         contenidoHtml: contenidoHtml,
       );
+
+      final imagenFinal = usaImagenOriginal
+          ? imagen
+          : _convertirImagenCloudinary(imagen);
 
       resultado.add(
         NoticiaRss(
@@ -92,9 +118,7 @@ class RssService {
           url: url,
           fechaPublicacion: item.pubDate,
           autor: item.author?.trim(),
-          imagenUrl: _convertirImagenCloudinary(
-            imagen,
-          ),
+          imagenUrl: imagenFinal,
         ),
       );
     }
@@ -102,7 +126,9 @@ class RssService {
     return resultado;
   }
 
-  String? _convertirImagenCloudinary(String? url) {
+  String? _convertirImagenCloudinary(
+      String? url,
+      ) {
     if (url == null || url.trim().isEmpty) {
       return null;
     }
@@ -376,7 +402,9 @@ class RssService {
         continue;
       }
 
-      url = _decodificarXml(url.trim());
+      url = _decodificarXml(
+        url.trim(),
+      );
 
       if (url.contains(',')) {
         url = url.split(',').first.trim();
@@ -396,7 +424,9 @@ class RssService {
     return null;
   }
 
-  String? _normalizarUrl(String url) {
+  String? _normalizarUrl(
+      String url,
+      ) {
     final limpia = url.trim();
 
     if (limpia.startsWith('//')) {
@@ -406,7 +436,9 @@ class RssService {
     return limpia;
   }
 
-  bool _esUrlValida(String? url) {
+  bool _esUrlValida(
+      String? url,
+      ) {
     if (url == null) {
       return false;
     }
@@ -418,7 +450,9 @@ class RssService {
         limpia.startsWith('//');
   }
 
-  String _decodificarXml(String texto) {
+  String _decodificarXml(
+      String texto,
+      ) {
     return texto
         .replaceAll('&amp;', '&')
         .replaceAll('&quot;', '"')
@@ -427,7 +461,9 @@ class RssService {
         .replaceAll('&gt;', '>');
   }
 
-  String? _limpiarTexto(String? texto) {
+  String? _limpiarTexto(
+      String? texto,
+      ) {
     if (texto == null ||
         texto.trim().isEmpty) {
       return null;
